@@ -1279,10 +1279,7 @@ function deleteUser(id) {
 // ============================================================
 // SUPABASE DATABASE (chỉ lưu dữ liệu, không dùng auth)
 // ============================================================
-var _db = supabase.createClient(
-   + SUPA_URL + ,
-   + SUPA_KEY + 
-);
+var _db = supabase.createClient("https://dgtdsdajokvuntgkfuez.supabase.co","eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRndGRzZGFqb2t2dW50Z2tmdWV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNjU1NTYsImV4cCI6MjA5MDc0MTU1Nn0.b5GnHwMMrpqBsEjlEiC8JSrAvRw_D96MO6LpP52JP8E");
 
 // Load nhật ký từ Supabase khi khởi động
 function loadLogsFromDB() {
