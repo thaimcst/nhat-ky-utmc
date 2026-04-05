@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nhật Ký Vận Hành MBA — UTMC</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
@@ -468,16 +469,14 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 
 <script>
 // ============================================================
-// AUTH
+// SUPABASE AUTH
 // ============================================================
-var USERS = [
-  {email:'hongmanhthai@gmail.com', pass:'Utmc@2026!',  name:'Admin UTMC',    role:'admin'},
-  {email:'admin@utmc.vn',          pass:'Admin@2026!', name:'Admin UTMC',    role:'admin'},
-  {email:'truongca@utmc.vn',       pass:'Truongca@123',name:'Truong Ca',     role:'truong_ca'},
-  {email:'nv1@utmc.vn',            pass:'NhanVien@123',name:'NV Van Hanh 1', role:'nv'},
-  {email:'khach@utmc.vn',          pass:'Khach@123',   name:'Khach',         role:'khach'}
-];
+var _supa = supabase.createClient(
+  'https://dgtdsdajokvuntgkfuez.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRndGRzZGFqb2t2dW50Z2tmdWV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNjU1NTYsImV4cCI6MjA5MDc0MTU1Nn0.b5GnHwMMrpqBsEjlEiC8JSrAvRw_D96MO6LpP52JP8E'
+);
 var CU = null;
+var ROLE_LABELS = {admin:'Admin', truong_ca:'Truong ca', nv:'NV Van hanh', khach:'Khach'};
 
 function doLogin() {
   var email = document.getElementById('li-email').value.trim();
@@ -485,18 +484,35 @@ function doLogin() {
   var err   = document.getElementById('li-err');
   err.textContent = '';
   if (!email || !pass) { err.textContent = 'Nhap du email va mat khau'; return; }
-  var u = USERS.filter(function(x){ return x.email === email && x.pass === pass; })[0];
-  if (!u) { err.textContent = 'Sai email hoac mat khau'; return; }
-  CU = u;
-  try { localStorage.setItem('nkvh_sess', JSON.stringify({email:u.email,role:u.role,name:u.name})); } catch(e){}
-  loginSuccess();
+  err.textContent = 'Dang dang nhap...';
+  _supa.auth.signInWithPassword({email: email, password: pass}).then(function(res) {
+    if (res.error) { err.textContent = 'Sai email hoac mat khau'; return; }
+    loadProfile(res.data.user);
+  });
+}
+
+function loadProfile(user) {
+  _supa.from('profiles').select('*').eq('id', user.id).single().then(function(res) {
+    if (res.error || !res.data) {
+      document.getElementById('li-err').textContent = 'Tai khoan chua duoc kich hoat';
+      _supa.auth.signOut();
+      return;
+    }
+    if (!res.data.active) {
+      document.getElementById('li-err').textContent = 'Tai khoan bi khoa';
+      _supa.auth.signOut();
+      return;
+    }
+    CU = {id: user.id, email: user.email, name: res.data.ho_ten, role: res.data.role};
+    loginSuccess();
+  });
 }
 
 function loginSuccess() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.add('show');
   var badge = document.getElementById('user-badge');
-  badge.textContent = CU.name + ' — ' + {admin:'Admin',truong_ca:'Truong ca',nv:'NV Van hanh',khach:'Khach'}[CU.role];
+  badge.textContent = CU.name + ' — ' + (ROLE_LABELS[CU.role] || CU.role);
   badge.className = 'user-badge role-' + CU.role;
   applyRole();
   loadDevices();
@@ -506,8 +522,8 @@ function loginSuccess() {
 }
 
 function doLogout() {
+  _supa.auth.signOut();
   CU = null;
-  try { localStorage.removeItem('nkvh_sess'); } catch(e){}
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app').classList.remove('show');
   document.getElementById('li-pass').value = '';
@@ -528,16 +544,13 @@ function applyRole() {
   }
 }
 
-// Auto login
-(function(){
-  try {
-    var s = localStorage.getItem('nkvh_sess');
-    if (s) {
-      var saved = JSON.parse(s);
-      var u = USERS.filter(function(x){ return x.email === saved.email && x.role === saved.role; })[0];
-      if (u) { CU = u; loginSuccess(); return; }
+// Auto login khi co session
+(function() {
+  _supa.auth.getSession().then(function(res) {
+    if (res.data && res.data.session) {
+      loadProfile(res.data.session.user);
     }
-  } catch(e){}
+  });
 })();
 
 // ============================================================
