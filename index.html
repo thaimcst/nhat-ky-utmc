@@ -220,7 +220,6 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); min-
 }
 </style>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 #login-overlay{position:fixed;inset:0;background:#0a0e1a;display:flex;align-items:center;justify-content:center;z-index:9999;transition:opacity .3s}
 #login-overlay.hidden{opacity:0;pointer-events:none}
@@ -1137,9 +1136,281 @@ document.addEventListener('DOMContentLoaded', function(){
 
 
 
+
+// ========== SIMPLE AUTH (không cần Supabase) ==========
+const USERS = [
+  { email: 'admin@utmc.vn',    password: 'Admin@2026!',  ho_ten: 'Admin UTMC',      role: 'admin'     },
+  { email: 'truongca@utmc.vn', password: 'Truongca@123', ho_ten: 'Trưởng Ca',       role: 'truong_ca' },
+  { email: 'nv1@utmc.vn',      password: 'NhanVien@123', ho_ten: 'NV Vận Hành 1',   role: 'nv'        },
+  { email: 'khach@utmc.vn',    password: 'Khach@123',    ho_ten: 'Khách',            role: 'khach'     },
+  { email: 'hongmanhthai@gmail.com', password: 'Utmc@2026!', ho_ten: 'Admin UTMC', role: 'admin'     },
+];
+
+let currentUser = null;
+let currentProfile = null;
+
+function hasRole(...roles){ return currentProfile && roles.includes(currentProfile.role); }
+function canEdit(){ return hasRole('admin','truong_ca'); }
+function canInput(){ return hasRole('admin','truong_ca','nv'); }
+
+const ROLES = {admin:'Admin',truong_ca:'Trưởng ca',nv:'NV Vận hành',khach:'Khách'};
+
+function doLogin(){
+  var email = document.getElementById('login-email').value.trim();
+  var pass  = document.getElementById('login-pass').value;
+  var errEl = document.getElementById('login-err');
+  errEl.textContent = '';
+  if(!email||!pass){ errEl.textContent='Nhập đủ email và mật khẩu'; return; }
+  
+  var user = USERS.find(function(u){ return u.email===email && u.password===pass; });
+  if(!user){ errEl.textContent='Sai email hoặc mật khẩu'; return; }
+  
+  currentUser = user;
+  currentProfile = user;
+  
+  // Lưu session
+  try{ localStorage.setItem('nkvh_session', JSON.stringify(user)); }catch(e){}
+  
+  document.getElementById('login-overlay').classList.add('hidden');
+  applyRoleUI();
+  updateUserBadge();
+  loadDevicesFromStorage();
+  showScreen('nhap');
+}
+
+function loadDevicesFromStorage(){
+  try{
+    var s = localStorage.getItem('nkvh_devices');
+    if(s){ var d=JSON.parse(s); if(d&&d.length){ DEVICES=d; rebuildTSTable(); renderDeviceListUI(); } }
+  }catch(e){}
+}
+
+function applyRoleUI(){
+  if(!canEdit()){
+    document.querySelectorAll('.btn-warn').forEach(function(b){ 
+      if(b.textContent.includes('Sửa')) b.style.display='none'; 
+    });
+    document.querySelectorAll('.btn-danger').forEach(function(b){ 
+      if(b.textContent.includes('Xóa')) b.style.display='none'; 
+    });
+  }
+  if(!canInput()){
+    ['btn-save-main','btn-save-bot'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.style.display='none';
+    });
+    document.querySelectorAll('#ts-main-table input').forEach(function(i){ i.disabled=true; });
+    ['tinh-hinh-dien','mba-text','ha-the','chieu-sang','ket-luan','lenh-dieu-hanh'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.disabled=true;
+    });
+  }
+  document.querySelectorAll('.nav-item').forEach(function(n){
+    if(n.textContent.includes('Quản lý thiết bị') && !hasRole('admin')) n.style.display='none';
+  });
+}
+
+function updateUserBadge(){
+  var roleLabel = ROLES[currentProfile.role]||currentProfile.role;
+  var badge = document.querySelector('.topbar-badge');
+  if(badge){
+    badge.textContent = currentProfile.ho_ten + ' — ' + roleLabel;
+    badge.className = 'topbar-badge role-'+currentProfile.role;
+  }
+  var tr = document.querySelector('.top-right');
+  if(tr && !document.getElementById('btn-logout')){
+    var btn = document.createElement('button');
+    btn.id='btn-logout';
+    btn.className='btn btn-ghost';
+    btn.style.cssText='padding:4px 10px;font-size:11px';
+    btn.textContent='Đăng xuất';
+    btn.onclick=doLogout;
+    tr.appendChild(btn);
+  }
+}
+
+function doLogout(){
+  currentUser=null; currentProfile=null;
+  try{ localStorage.removeItem('nkvh_session'); }catch(e){}
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('login-pass').value='';
+  document.getElementById('login-err').textContent='';
+}
+
+function handleSaveUI(){
+  if(!canInput()){ showToastUI('Không có quyền lưu','warn'); return; }
+  var data = getFormUI();
+  if(editingIdx!==null){
+    if(!canEdit()){ showToastUI('NV không được sửa nhật ký','warn'); return; }
+    logs[editingIdx]=data;
+  } else {
+    logs.push(data);
+  }
+  saveLogs();
+  showToastUI(editingIdx!==null?'Đã cập nhật!':'Đã lưu nhật ký!','success');
+  cancelEditUI();
+  setTimeout(function(){ showScreen('danh-sach'); },700);
+}
+
+function deleteLogUI(idx){
+  if(!canEdit()){ showToastUI('Không có quyền xóa','warn'); return; }
+  if(!confirm('Xóa nhật ký này?')) return;
+  logs.splice(idx,1); saveLogs();
+  showToastUI('Đã xóa','warn');
+  renderListUI(); renderStatUI();
+}
+
+function viewLogUI(idx){
+  pendingLog=null;
+  document.getElementById('preview-content').innerHTML=renderPreviewContent(logs[idx]);
+  document.getElementById('preview-actions').innerHTML=
+    (canEdit()?'<button class="btn btn-warn" onclick="startEditUI('+idx+')">Chỉnh sửa</button>':'')
+    +'<button class="btn btn-ghost" onclick="showScreen('danh-sach')">Quay lại</button>'
+    +(canEdit()?'<button class="btn btn-danger" onclick="if(confirm('Xóa?'))deleteLogUI('+idx+')">Xóa</button>':'');
+  showScreen('preview');
+}
+
+// Kiểm tra session khi load
+(function(){
+  try{
+    var s = localStorage.getItem('nkvh_session');
+    if(s){
+      var user = JSON.parse(s);
+      // Verify user vẫn hợp lệ
+      var valid = USERS.find(function(u){ return u.email===user.email && u.role===user.role; });
+      if(valid){
+        currentUser=valid; currentProfile=valid;
+        document.getElementById('login-overlay').classList.add('hidden');
+        applyRoleUI();
+        updateUserBadge();
+        loadDevicesFromStorage();
+        showScreen('nhap');
+      }
+    }
+  }catch(e){}
+})();
+// ========== END SIMPLE AUTH ==========
+
+// ========== QUẢN LÝ THIẾT BỊ ==========
+function renderDeviceListUI(){
+  var el = document.getElementById('device-list-ui');
+  if(!el) return;
+  document.getElementById('dev-count-tag').textContent = DEVICES.length + ' thiết bị';
+  el.innerHTML = DEVICES.map(function(dev, i){
+    return '<div id="devrow_'+i+'" draggable="true" ondragstart="devDragStart(event,'+i+')" ondragover="devDragOver(event)" ondrop="devDrop(event,'+i+')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:grab;transition:background .1s" onmouseenter="this.style.background='rgba(45,127,255,.06)'" onmouseleave="this.style.background='var(--bg3)'">'
+      + '<svg style="width:14px;height:14px;flex-shrink:0;color:var(--text3);cursor:grab" viewBox="0 0 16 16" fill="currentColor"><path d="M3 4h10v1.5H3zm0 3h10v1.5H3zm0 3h10v1.5H3z"/></svg>'
+      + '<span style="font-family:var(--mono);font-size:11px;color:var(--text3);min-width:28px">'+(i+1)+'.</span>'
+      + '<input id="devname_'+i+'" value="'+dev+'" style="flex:1;background:transparent;border:none;border-bottom:1px solid var(--border);outline:none;font-size:13px;color:var(--text);font-family:var(--sans);padding:3px 4px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" onchange="DEVICES['+i+']=this.value">'
+      + (DEVICES.length > 1 ? '<button onclick="removeDeviceUI('+i+')" class="btn btn-danger" style="padding:3px 8px;font-size:11px;flex-shrink:0">Xóa</button>' : '')
+      + '</div>';
+  }).join('');
+}
+
+var dragSrcIdx = null;
+function devDragStart(e, idx){ dragSrcIdx=idx; e.dataTransfer.effectAllowed='move'; }
+function devDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect='move'; }
+function devDrop(e, idx){
+  e.preventDefault();
+  if(dragSrcIdx===null||dragSrcIdx===idx) return;
+  var tmp=DEVICES.splice(dragSrcIdx,1)[0];
+  DEVICES.splice(idx,0,tmp);
+  dragSrcIdx=null;
+  renderDeviceListUI();
+}
+
+function removeDeviceUI(idx){
+  if(!confirm('Xóa thiết bị "'+DEVICES[idx]+'"? Dữ liệu đã nhập của thiết bị này sẽ không bị xóa.')) return;
+  DEVICES.splice(idx,1);
+  renderDeviceListUI();
+  showToastUI('Đã xóa thiết bị','warn');
+}
+
+function addDeviceUI(){
+  var nameEl = document.getElementById('new-dev-name');
+  var name = nameEl ? nameEl.value.trim() : '';
+  if(!name){ 
+    if(nameEl) nameEl.focus();
+    showToastUI('Nhập tên thiết bị trước','warn');
+    return; 
+  }
+  if(DEVICES.includes(name)){ showToastUI('Tên thiết bị đã tồn tại','warn'); return; }
+  DEVICES.push(name);
+  if(nameEl) nameEl.value='';
+  var descEl = document.getElementById('new-dev-desc');
+  if(descEl) descEl.value='';
+  renderDeviceListUI();
+  showToastUI('Đã thêm thiết bị "'+name+'"','success');
+}
+
+function saveDevicesUI(){
+  // Đọc lại tên từ input (phòng người dùng sửa mà không trigger onchange)
+  DEVICES.forEach(function(_,i){
+    var el=document.getElementById('devname_'+i);
+    if(el&&el.value.trim()) DEVICES[i]=el.value.trim();
+  });
+  try{ localStorage.setItem('nkvh_devices', JSON.stringify(DEVICES)); }catch(e){}
+  // Rebuild bảng thông số với DEVICES mới
+  rebuildTSTable();
+  renderDeviceListUI();
+  showToastUI('Đã lưu danh sách thiết bị','success');
+}
+
+function resetDevicesUI(){
+  if(!confirm('Khôi phục danh sách mặc định 10 thiết bị?')) return;
+  DEVICES = DEFAULT_DEVICES.slice();
+  try{ localStorage.removeItem('nkvh_devices'); }catch(e){}
+  renderDeviceListUI();
+  rebuildTSTable();
+  showToastUI('Đã khôi phục mặc định','success');
+}
+
+function rebuildTSTable(){
+  // Xây lại tbody bảng thông số theo DEVICES hiện tại
+  var tbody = document.getElementById('ts-tbody-ui');
+  if(!tbody) return;
+  // Xây lại thead
+  var table = document.getElementById('ts-main-table');
+  if(table){
+    var thead = table.querySelector('thead');
+    if(thead){
+      var r1='<tr><th rowspan="3" style="min-width:52px;text-align:center">Giờ</th>';
+      DEVICES.forEach(function(d){ r1+='<th colspan="10" class="ca-h">'+d+'</th>'; });
+      r1+='</tr>';
+      var r2='<tr>';
+      DEVICES.forEach(function(){ r2+='<th colspan="3" class="sub-h">Áp (V)</th><th colspan="3" class="sub-h">Dòng (A)</th><th rowspan="2">kW</th><th rowspan="2">kWh</th><th rowspan="2">cosφ</th><th rowspan="2">Hz</th>'; });
+      r2+='</tr>';
+      var r3='<tr>';
+      DEVICES.forEach(function(){ r3+='<th>A</th><th>B</th><th>C</th><th>A</th><th>B</th><th>C</th>'; });
+      r3+='</tr>';
+      thead.innerHTML = r1+r2+r3;
+    }
+  }
+  // Xây lại tbody
+  var fields=['ua','ub','uc','ia','ib','ic','kw','kwh','cosphi','hz'];
+  var rows='';
+  for(var h=0;h<24;h++){
+    var hstr=String(h).padStart(2,'0')+':00';
+    rows+='<tr><td class="dev-cell" style="text-align:center;font-size:12px">'+hstr+'</td>';
+    DEVICES.forEach(function(_,di){
+      fields.forEach(function(f){
+        rows+='<td><input id="ts_h'+String(h).padStart(2,'0')+'_'+di+'_'+f+'" placeholder=""></td>';
+      });
+    });
+    rows+='</tr>';
+  }
+  tbody.innerHTML=rows;
+  // Re-init tab navigation
+  if(typeof initTabNav === 'function') initTabNav();
+}
+
+// Khởi tạo khi load
+document.addEventListener('DOMContentLoaded', function(){
+  renderDeviceListUI();
+});
+// ========== END QUẢN LÝ THIẾT BỊ ==========
+
+
+
 const SUPA_URL = 'https://dgtdsdajokvuntgkfuez.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRndGRzZGFqb2t2dW50Z2tmdWV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNjU1NTYsImV4cCI6MjA5MDc0MTU1Nn0.b5GnHwMMrpqBsEjlEiC8JSrAvRw_D96MO6LpP52JP8E';
-const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 let currentUser = null;
 let currentProfile = null;
