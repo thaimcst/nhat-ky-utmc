@@ -251,6 +251,10 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h12v2H2z"/></svg>
       Quản lý thiết bị
     </div>
+    <div class="nav-item" id="nav-users" onclick="showPage('users')">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm-5 6a5 5 0 0110 0H3z"/></svg>
+      Quản lý tài khoản
+    </div>
   </div>
 
   <!-- MAIN -->
@@ -453,6 +457,49 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
       </div>
     </div>
 
+
+    <!-- PAGE: TÀI KHOẢN -->
+    <div class="page" id="page-users">
+      <div class="page-hdr">
+        <div><h1>Quản lý tài khoản</h1><p>Thêm, sửa, xóa tài khoản nhân viên</p></div>
+        <button class="btn btn-primary" onclick="showAddUser()">+ Thêm tài khoản</button>
+      </div>
+
+      <!-- Form thêm/sửa user -->
+      <div class="card" id="user-form-card" style="display:none">
+        <div class="card-head"><h2 id="user-form-title">Thêm tài khoản mới</h2></div>
+        <div class="card-body">
+          <div class="grid2">
+            <div class="fg"><label>Họ và tên</label><input type="text" id="uf-name" placeholder="Nguyen Van A"></div>
+            <div class="fg"><label>Email</label><input type="email" id="uf-email" placeholder="email@utmc.vn"></div>
+            <div class="fg"><label>Mật khẩu</label><input type="password" id="uf-pass" placeholder="Toi thieu 6 ky tu"></div>
+            <div class="fg"><label>Vai trò</label>
+              <select id="uf-role">
+                <option value="nv">NV Vận hành</option>
+                <option value="truong_ca">Trưởng ca</option>
+                <option value="admin">Admin</option>
+                <option value="khach">Khách (chỉ xem)</option>
+              </select>
+            </div>
+          </div>
+          <div class="act-row">
+            <button class="btn btn-primary" onclick="saveUser()">Lưu tài khoản</button>
+            <button class="btn btn-ghost" onclick="cancelUserForm()">Hủy</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Danh sách tài khoản</h2><span class="ctag ctag-blue" id="user-count">0 tài khoản</span></div>
+        <table class="log-tbl">
+          <thead>
+            <tr><th>Họ và tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Thao tác</th></tr>
+          </thead>
+          <tbody id="user-list-body"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- PAGE: PREVIEW -->
     <div class="page" id="page-preview">
       <div class="page-hdr">
@@ -469,12 +516,24 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 
 <script>
 // ============================================================
-// SUPABASE AUTH
+// AUTH — Simple + User Management
 // ============================================================
-var _supa = supabase.createClient(
-  'https://dgtdsdajokvuntgkfuez.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRndGRzZGFqb2t2dW50Z2tmdWV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNjU1NTYsImV4cCI6MjA5MDc0MTU1Nn0.b5GnHwMMrpqBsEjlEiC8JSrAvRw_D96MO6LpP52JP8E'
-);
+var USERS = (function(){
+  try {
+    var s = localStorage.getItem('nkvh_users');
+    if (s) return JSON.parse(s);
+  } catch(e){}
+  return [
+    {id:'1', email:'admin@utmc.vn',      pass:'Admin@2026',   name:'Admin UTMC',    role:'admin',     active:true},
+    {id:'2', email:'truongca@utmc.vn',   pass:'Truongca123',  name:'Truong Ca',     role:'truong_ca', active:true},
+    {id:'3', email:'nv1@utmc.vn',        pass:'NhanVien123',  name:'NV Van Hanh 1', role:'nv',        active:true},
+    {id:'4', email:'nv2@utmc.vn',        pass:'NhanVien123',  name:'NV Van Hanh 2', role:'nv',        active:true},
+    {id:'5', email:'khach@utmc.vn',      pass:'Khach123',     name:'Khach',         role:'khach',     active:true}
+  ];
+})();
+
+function saveUsers(){ try{ localStorage.setItem('nkvh_users', JSON.stringify(USERS)); }catch(e){} }
+
 var CU = null;
 var ROLE_LABELS = {admin:'Admin', truong_ca:'Truong ca', nv:'NV Van hanh', khach:'Khach'};
 
@@ -484,54 +543,38 @@ function doLogin() {
   var err   = document.getElementById('li-err');
   err.textContent = '';
   if (!email || !pass) { err.textContent = 'Nhap du email va mat khau'; return; }
-  err.textContent = 'Dang dang nhap...';
-  _supa.auth.signInWithPassword({email: email, password: pass}).then(function(res) {
-    if (res.error) { err.textContent = 'Sai email hoac mat khau'; return; }
-    loadProfile(res.data.user);
-  });
-}
-
-function loadProfile(user) {
-  _supa.from('profiles').select('*').eq('id', user.id).single().then(function(res) {
-    if (res.error || !res.data) {
-      document.getElementById('li-err').textContent = 'Tai khoan chua duoc kich hoat';
-      _supa.auth.signOut();
-      return;
-    }
-    if (!res.data.active) {
-      document.getElementById('li-err').textContent = 'Tai khoan bi khoa';
-      _supa.auth.signOut();
-      return;
-    }
-    CU = {id: user.id, email: user.email, name: res.data.ho_ten, role: res.data.role};
-    loginSuccess();
-  });
+  var u = USERS.filter(function(x){ return x.email===email && x.pass===pass && x.active; })[0];
+  if (!u) { err.textContent = 'Sai email hoac mat khau'; return; }
+  CU = u;
+  try { localStorage.setItem('nkvh_sess', JSON.stringify({id:u.id,email:u.email,role:u.role,name:u.name})); } catch(e){}
+  loginSuccess();
 }
 
 function loginSuccess() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.add('show');
   var badge = document.getElementById('user-badge');
-  badge.textContent = CU.name + ' — ' + (ROLE_LABELS[CU.role] || CU.role);
+  badge.textContent = CU.name + ' — ' + (ROLE_LABELS[CU.role]||CU.role);
   badge.className = 'user-badge role-' + CU.role;
   applyRole();
   loadDevices();
   initTable();
   setDefaults();
+  loadLogsFromDB();
   showPage('nhap');
 }
 
 function doLogout() {
-  _supa.auth.signOut();
   CU = null;
+  try { localStorage.removeItem('nkvh_sess'); } catch(e){}
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app').classList.remove('show');
   document.getElementById('li-pass').value = '';
   document.getElementById('li-err').textContent = '';
 }
 
-function canEdit() { return CU && (CU.role === 'admin' || CU.role === 'truong_ca'); }
-function canInput() { return CU && (CU.role === 'admin' || CU.role === 'truong_ca' || CU.role === 'nv'); }
+function canEdit() { return CU && (CU.role==='admin'||CU.role==='truong_ca'); }
+function canInput() { return CU && (CU.role==='admin'||CU.role==='truong_ca'||CU.role==='nv'); }
 
 function applyRole() {
   if (!canInput()) {
@@ -541,16 +584,21 @@ function applyRole() {
   if (!CU || CU.role !== 'admin') {
     var nd = document.getElementById('nav-devices');
     if (nd) nd.style.display = 'none';
+    var nu = document.getElementById('nav-users');
+    if (nu) nu.style.display = 'none';
   }
 }
 
-// Auto login khi co session
-(function() {
-  _supa.auth.getSession().then(function(res) {
-    if (res.data && res.data.session) {
-      loadProfile(res.data.session.user);
+// Auto login
+(function(){
+  try {
+    var s = localStorage.getItem('nkvh_sess');
+    if (s) {
+      var saved = JSON.parse(s);
+      var u = USERS.filter(function(x){ return x.email===saved.email && x.active; })[0];
+      if (u) { CU = u; loginSuccess(); return; }
     }
-  });
+  } catch(e){}
 })();
 
 // ============================================================
@@ -560,10 +608,11 @@ function showPage(id) {
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   document.getElementById('page-' + id).classList.add('active');
-  var map = {nhap:0, list:1, stat:3, devices:4};
+  var map = {nhap:0, list:1, stat:3, devices:4, users:5};
   var items = document.querySelectorAll('.nav-item');
   if (map[id] !== undefined && items[map[id]]) items[map[id]].classList.add('active');
   if (id === 'list') renderList();
+  if (id === 'users') { renderUserList(); }
   if (id === 'stat') { fillStatFilters(); renderStat(); }
   if (id === 'devices') renderDevList();
 }
@@ -1119,6 +1168,197 @@ function doPrint() {
   showToast('Dang mo cua so in...', 'ok');
 }
 
+
+// ============================================================
+// QUẢN LÝ TÀI KHOẢN
+// ============================================================
+var editingUserId = null;
+
+function showPage_users_extra() {
+  renderUserList();
+}
+
+function renderUserList() {
+  var tb = document.getElementById('user-list-body');
+  var ct = document.getElementById('user-count');
+  if (!tb) return;
+  ct.textContent = USERS.length + ' tai khoan';
+  var roleColors = {admin:'role-admin', truong_ca:'role-truong_ca', nv:'role-nv', khach:'role-khach'};
+  tb.innerHTML = USERS.map(function(u, i) {
+    return '<tr>' +
+      '<td style="font-weight:500">' + u.name + '</td>' +
+      '<td style="font-size:12px;font-family:var(--mono)">' + u.email + '</td>' +
+      '<td><span class="user-badge ' + (roleColors[u.role]||'') + '" style="font-size:10px">' + (ROLE_LABELS[u.role]||u.role) + '</span></td>' +
+      '<td><span style="font-size:11px;color:' + (u.active?'var(--accent2)':'var(--accent4)') + '">' + (u.active?'Hoat dong':'Bi khoa') + '</span></td>' +
+      '<td><div style="display:flex;gap:6px">' +
+        '<button class="btn btn-warn btn-sm" onclick="editUser('' + u.id + '')">Sua</button>' +
+        (u.id !== CU.id ? '<button class="btn btn-ghost btn-sm" onclick="toggleUser('' + u.id + '')">' + (u.active?'Khoa':'Mo khoa') + '</button>' : '') +
+        (u.id !== CU.id ? '<button class="btn btn-danger btn-sm" onclick="deleteUser('' + u.id + '')">Xoa</button>' : '') +
+      '</div></td>' +
+      '</tr>';
+  }).join('');
+}
+
+function showAddUser() {
+  editingUserId = null;
+  document.getElementById('user-form-title').textContent = 'Them tai khoan moi';
+  document.getElementById('uf-name').value = '';
+  document.getElementById('uf-email').value = '';
+  document.getElementById('uf-pass').value = '';
+  document.getElementById('uf-role').value = 'nv';
+  document.getElementById('user-form-card').style.display = 'block';
+  document.getElementById('uf-name').focus();
+}
+
+function editUser(id) {
+  var u = USERS.filter(function(x){ return x.id===id; })[0];
+  if (!u) return;
+  editingUserId = id;
+  document.getElementById('user-form-title').textContent = 'Chinh sua tai khoan';
+  document.getElementById('uf-name').value = u.name;
+  document.getElementById('uf-email').value = u.email;
+  document.getElementById('uf-pass').value = '';
+  document.getElementById('uf-role').value = u.role;
+  document.getElementById('user-form-card').style.display = 'block';
+  document.getElementById('uf-name').focus();
+}
+
+function saveUser() {
+  var name  = document.getElementById('uf-name').value.trim();
+  var email = document.getElementById('uf-email').value.trim();
+  var pass  = document.getElementById('uf-pass').value;
+  var role  = document.getElementById('uf-role').value;
+  if (!name || !email) { showToast('Nhap du ho ten va email', 'err'); return; }
+  if (editingUserId === null && !pass) { showToast('Nhap mat khau', 'err'); return; }
+  if (pass && pass.length < 6) { showToast('Mat khau toi thieu 6 ky tu', 'err'); return; }
+
+  if (editingUserId !== null) {
+    var idx = USERS.findIndex(function(x){ return x.id===editingUserId; });
+    if (idx >= 0) {
+      USERS[idx].name  = name;
+      USERS[idx].email = email;
+      USERS[idx].role  = role;
+      if (pass) USERS[idx].pass = pass;
+    }
+    showToast('Da cap nhat tai khoan!', 'ok');
+  } else {
+    var exists = USERS.filter(function(x){ return x.email===email; })[0];
+    if (exists) { showToast('Email da ton tai', 'err'); return; }
+    USERS.push({id: Date.now().toString(), email:email, pass:pass, name:name, role:role, active:true});
+    showToast('Da them tai khoan: ' + name, 'ok');
+  }
+  saveUsers();
+  cancelUserForm();
+  renderUserList();
+}
+
+function cancelUserForm() {
+  editingUserId = null;
+  document.getElementById('user-form-card').style.display = 'none';
+}
+
+function toggleUser(id) {
+  var u = USERS.filter(function(x){ return x.id===id; })[0];
+  if (!u) return;
+  u.active = !u.active;
+  saveUsers();
+  renderUserList();
+  showToast(u.active ? 'Da mo khoa tai khoan' : 'Da khoa tai khoan', 'ok');
+}
+
+function deleteUser(id) {
+  if (!confirm('Xoa tai khoan nay?')) return;
+  var idx = USERS.findIndex(function(x){ return x.id===id; });
+  if (idx >= 0) USERS.splice(idx, 1);
+  saveUsers();
+  renderUserList();
+  showToast('Da xoa tai khoan', 'err');
+}
+
+
+// ============================================================
+// SUPABASE DATABASE (chỉ lưu dữ liệu, không dùng auth)
+// ============================================================
+var _db = supabase.createClient(
+   + SUPA_URL + ,
+   + SUPA_KEY + 
+);
+
+// Load nhật ký từ Supabase khi khởi động
+function loadLogsFromDB() {
+  _db.from('nhat_ky').select('*').order('ngay', {ascending: false}).order('created', {ascending: false})
+    .then(function(res) {
+      if (res.error) {
+        console.log('DB error:', res.error.message);
+        return;
+      }
+      if (res.data && res.data.length) {
+        logs = res.data.map(function(r) {
+          return {
+            id: r.id, ca: r.ca, ngay: r.ngay, ngay2: r.ngay2,
+            tc: r.tc, nv: r.nv||[], tq: r.tq, mba: r.mba,
+            ha: r.ha, cs: r.cs, ts: r.ts||{}, kl: r.kl, ldh: r.ldh,
+            gnv: r.gnv, gtc: r.gtc, nnv: r.nnv, ntc: r.ntc,
+            by: r.by_user, created: r.created, updated: r.updated
+          };
+        });
+        saveLogs();
+        renderList();
+        renderStat();
+      }
+    });
+}
+
+// Override doSave để lưu lên Supabase
+var _origDoSave = doSave;
+doSave = function() {
+  if (!canInput()) { showToast('Khong co quyen luu', 'err'); return; }
+  var data = getFormData();
+  var dbRow = {
+    id: data.id.toString(), ca: data.ca, ngay: data.ngay, ngay2: data.ngay2,
+    tc: data.tc, nv: data.nv, tq: data.tq, mba: data.mba,
+    ha: data.ha, cs: data.cs, ts: data.ts, kl: data.kl, ldh: data.ldh,
+    gnv: data.gnv, gtc: data.gtc, nnv: data.nnv, ntc: data.ntc,
+    by_user: CU ? CU.name : '',
+    updated: editIdx !== null ? new Date().toISOString() : null
+  };
+  _db.from('nhat_ky').upsert(dbRow).then(function(res) {
+    if (res.error) {
+      console.log('Save error:', res.error.message);
+      showToast('Loi luu DB: ' + res.error.message, 'err');
+      return;
+    }
+    if (editIdx !== null) {
+      logs[editIdx] = data;
+    } else {
+      logs.unshift(data);
+    }
+    saveLogs();
+    showToast(editIdx !== null ? 'Da cap nhat!' : 'Da luu nhat ky!', 'ok');
+    cancelEdit();
+    setTimeout(function(){ showPage('list'); }, 700);
+  });
+};
+
+// Override delLog để xóa trên Supabase
+var _origDelLog = delLog;
+delLog = function(idx) {
+  if (!canEdit()) { showToast('Khong co quyen xoa', 'err'); return; }
+  if (!confirm('Xoa nhat ky nay?')) return;
+  var l = logs[idx];
+  _db.from('nhat_ky').delete().eq('id', l.id.toString()).then(function(res) {
+    if (res.error) { showToast('Loi xoa: ' + res.error.message, 'err'); return; }
+    logs.splice(idx, 1);
+    saveLogs();
+    showToast('Da xoa', 'err');
+    renderList();
+    renderStat();
+  });
+};
+
+// ============================================================
+// END SUPABASE DATABASE
+// ============================================================
 // ============================================================
 // TOAST
 // ============================================================
