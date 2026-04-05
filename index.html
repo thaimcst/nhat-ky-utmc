@@ -1893,7 +1893,7 @@ function printLogUI(){
     + '<div><div style="margin-bottom:40px">NV vận hành nhận ca</div><div class="sign-box">'+(document.getElementById('nhan-nv').value||'')+'</div></div>'
     + '<div><div style="margin-bottom:40px">Trưởng ca nhận</div><div class="sign-box">'+(document.getElementById('nhan-truong').value||'')+'</div></div>'
     + '</div>'
-    + '<script>window.onload=function(){window.print();}<\/script>'
+    + '<scr'+'ipt>window.onload=function(){window.print();}' + '<'+'/script>'
     + '</body></html>';
   printWin.document.write(html);
   printWin.document.close();
